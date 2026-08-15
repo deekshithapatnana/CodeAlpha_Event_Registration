@@ -4,8 +4,10 @@ from django.views.decorators.csrf import csrf_exempt
 from .models import Event, Participant, Registration
 
 
+@csrf_exempt
 def event_list(request):
 
+    # GET - List all events
     if request.method == 'GET':
         events = Event.objects.all()
 
@@ -23,8 +25,37 @@ def event_list(request):
 
         return JsonResponse(data, safe=False)
 
+    # POST - Create a new event
     if request.method == 'POST':
-        data = json.loads(request.body)
+
+        try:
+            data = json.loads(request.body)
+        except json.JSONDecodeError:
+            return JsonResponse(
+                {"error": "Invalid JSON"},
+                status=400
+            )
+
+        required_fields = [
+            'name',
+            'description',
+            'date',
+            'location',
+            'capacity'
+        ]
+
+        for field in required_fields:
+            if field not in data:
+                return JsonResponse(
+                    {"error": f"Missing required field: {field}"},
+                    status=400
+                )
+
+        if not isinstance(data['capacity'], int) or data['capacity'] <= 0:
+            return JsonResponse(
+                {"error": "Capacity must be a positive integer"},
+                status=400
+            )
 
         event = Event.objects.create(
             name=data['name'],
@@ -36,20 +67,27 @@ def event_list(request):
 
         return JsonResponse({
             "message": "Event created successfully",
-            "event_id": event.id
+            "event_id": event.id,
+            "event": event.name
         }, status=201)
 
-    return JsonResponse({"error": "Method not allowed"}, status=405)
+    return JsonResponse(
+        {"error": "Method not allowed"},
+        status=405
+    )
 
 
 @csrf_exempt
 def register_participant(request):
+
+    # Only POST is allowed
     if request.method != 'POST':
         return JsonResponse(
             {"error": "Only POST requests are allowed"},
             status=405
         )
 
+    # Read JSON data
     try:
         data = json.loads(request.body)
     except json.JSONDecodeError:
@@ -58,6 +96,7 @@ def register_participant(request):
             status=400
         )
 
+    # Check required fields
     required_fields = ['name', 'email', 'event_id']
 
     for field in required_fields:
@@ -71,6 +110,7 @@ def register_participant(request):
     email = data['email']
     event_id = data['event_id']
 
+    # Check whether event exists
     try:
         event = Event.objects.get(id=event_id)
     except Event.DoesNotExist:
@@ -79,6 +119,7 @@ def register_participant(request):
             status=404
         )
 
+    # Check event capacity
     current_registrations = Registration.objects.filter(
         event=event
     ).count()
@@ -89,11 +130,13 @@ def register_participant(request):
             status=400
         )
 
+    # Create participant if they don't already exist
     participant, created = Participant.objects.get_or_create(
         email=email,
         defaults={"name": name}
     )
 
+    # Prevent duplicate registration
     if Registration.objects.filter(
         participant=participant,
         event=event
@@ -103,6 +146,7 @@ def register_participant(request):
             status=400
         )
 
+    # Create registration
     registration = Registration.objects.create(
         participant=participant,
         event=event
@@ -112,11 +156,14 @@ def register_participant(request):
         "message": "Registration successful",
         "registration_id": registration.id,
         "participant": participant.name,
+        "email": participant.email,
         "event": event.name
     }, status=201)
 
 
 def registration_list(request):
+
+    # Only GET is allowed
     if request.method != 'GET':
         return JsonResponse(
             {"error": "Only GET requests are allowed"},
@@ -141,22 +188,29 @@ def registration_list(request):
 
     return JsonResponse(data, safe=False)
 
+
 @csrf_exempt
 def cancel_registration(request, registration_id):
+
+    # Only DELETE is allowed
     if request.method != 'DELETE':
         return JsonResponse(
             {"error": "Only DELETE requests are allowed"},
             status=405
         )
 
+    # Find registration
     try:
-        registration = Registration.objects.get(id=registration_id)
+        registration = Registration.objects.get(
+            id=registration_id
+        )
     except Registration.DoesNotExist:
         return JsonResponse(
             {"error": "Registration not found"},
             status=404
         )
 
+    # Delete registration
     registration.delete()
 
     return JsonResponse({
