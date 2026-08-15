@@ -1,5 +1,4 @@
 from django.test import TestCase
-from django.urls import reverse
 from .models import Event, Participant, Registration
 
 
@@ -51,23 +50,21 @@ class EventRegistrationTests(TestCase):
         self.assertEqual(Registration.objects.count(), 1)
 
     def test_duplicate_registration(self):
+        registration_data = {
+            "name": "Test Student",
+            "email": "teststudent@example.com",
+            "event_id": self.event.id
+        }
+
         self.client.post(
             "/register/",
-            data={
-                "name": "Test Student",
-                "email": "teststudent@example.com",
-                "event_id": self.event.id
-            },
+            data=registration_data,
             content_type="application/json"
         )
 
         response = self.client.post(
             "/register/",
-            data={
-                "name": "Test Student",
-                "email": "teststudent@example.com",
-                "event_id": self.event.id
-            },
+            data=registration_data,
             content_type="application/json"
         )
 
@@ -78,25 +75,16 @@ class EventRegistrationTests(TestCase):
         )
 
     def test_event_capacity(self):
-        self.client.post(
-            "/register/",
-            data={
-                "name": "Student One",
-                "email": "student1@example.com",
-                "event_id": self.event.id
-            },
-            content_type="application/json"
-        )
-
-        self.client.post(
-            "/register/",
-            data={
-                "name": "Student Two",
-                "email": "student2@example.com",
-                "event_id": self.event.id
-            },
-            content_type="application/json"
-        )
+        for i in range(2):
+            self.client.post(
+                "/register/",
+                data={
+                    "name": f"Student {i}",
+                    "email": f"student{i}@example.com",
+                    "event_id": self.event.id
+                },
+                content_type="application/json"
+            )
 
         response = self.client.post(
             "/register/",
@@ -131,6 +119,32 @@ class EventRegistrationTests(TestCase):
             "Event not found"
         )
 
+    def test_missing_required_field(self):
+        response = self.client.post(
+            "/register/",
+            data={
+                "name": "Test Student",
+                "email": "student@example.com"
+            },
+            content_type="application/json"
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Missing required field", response.json()["error"])
+
+    def test_invalid_json(self):
+        response = self.client.post(
+            "/register/",
+            data="invalid json",
+            content_type="application/json"
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json()["error"],
+            "Invalid JSON"
+        )
+
     def test_registration_list(self):
         self.client.post(
             "/register/",
@@ -146,6 +160,7 @@ class EventRegistrationTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Test Student")
+        self.assertContains(response, "student@example.com")
 
     def test_cancel_registration(self):
         response = self.client.post(
@@ -165,9 +180,19 @@ class EventRegistrationTests(TestCase):
         )
 
         self.assertEqual(cancel_response.status_code, 200)
+        self.assertEqual(
+            cancel_response.json()["message"],
+            "Registration cancelled successfully"
+        )
         self.assertEqual(Registration.objects.count(), 0)
 
+    def test_cancel_nonexistent_registration(self):
+        response = self.client.delete(
+            "/registrations/999/cancel/"
+        )
 
-from django.test import TestCase
-
-# Create your tests here.
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(
+            response.json()["error"],
+            "Registration not found"
+        )
